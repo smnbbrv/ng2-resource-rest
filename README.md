@@ -1,21 +1,23 @@
-[![npm version](https://badge.fury.io/js/ng2-resource-rest.svg)](http://badge.fury.io/js/ng2-resource-rest)
+[![npm version](https://badge.fury.io/js/ngx-resource.svg)](http://badge.fury.io/js/ngx-resource)
 
-[![NPM](https://nodei.co/npm/ng2-resource-rest.png?downloads=true&downloadRank=true&stars=true)](https://nodei.co/npm/ng2-resource-rest/)
-# ng2-resource-rest
+[![NPM](https://nodei.co/npm/ngx-resource.png?downloads=true&downloadRank=true&stars=true)](https://nodei.co/npm/ngx-resource/)
+
+# ngx-resource
 Resource (REST) Client for Angular 2
 
 To use the module install the module using below command
 
-`npm install ng2-resource-rest --save`
+`npm install ngx-resource --save`
 
-
+### How to use articles
+Good explanation how to use the library in the article "[Angular2, a rest client interface](http://blog.slals.io/angular2-a-rest-client-interface)" by [Jonathan Serra](https://github.com/Slaals)
 
 ### How to use
 
 ***Creating simple resource CRUD (./resources/NewsRes.ts)***
 ```ts
 import {Injectable} from '@angular/core';
-import {Resource, ResourceParams, ResourceAction, ResourceMethod} from 'ng2-resource-rest';
+import {Resource, ResourceParams, ResourceAction, ResourceMethod} from 'ngx-resource';
 import {RequestMethod} from '@angular/http';
 
 interface IQueryInput {
@@ -53,6 +55,11 @@ export class NewsRes extends Resource {
     path: '/{!id}'
   })
   get: ResourceMethod<{id: any}, INews>;
+  
+  @ResourceAction({
+    path: '/{!id}'
+  })
+  get2: ResourceMethodStrict<INews, {id: any}, INews>;
 
   @ResourceAction({
     method: RequestMethod.Post
@@ -166,7 +173,7 @@ export class PageComponent implements OnInit {
 
     // Creating the news
     let newNews:INews = {
-      date: '17.06.2016,
+      date: '17.06.2016',
       title: 'The great day',
       text: 'The best day ever',
       fullText: 'Should be full text here';
@@ -181,6 +188,55 @@ export class PageComponent implements OnInit {
 }
 
 ```
+# Changes
+
+## Version 2.0.0
+Support Angular 4
+
+#### Breaking
+ResourceModel is simplified.
+
+New model migration steps:
+1. Model Class
+    1. Remove model decorator.
+    1. Remove `static resourceClass`.
+    1. If you have data `id` different then default `id`, then overwrite method `protected isNew(): boolean`.
+    `Create` resource method will be used if `isNew()` return's `true`, otherwise `update` method will be called.
+    1. Static `create` method does not exists anymore. Please use `myResource.createModel()`.
+1. Model's resource class
+    1. Remove `static model`
+    1. Overwrite default `initResultObject()` resource method. Normally it should just contain `return new MyModel()`
+    
+Please check bellow the example.
+
+
+## Version 1.14.0 (Removed broken chance from ver 1.13.0)
+Added resource method `initResultObject` which is used to create return object or items in returned array.<br>
+The method should return object. If method `$setData` exists on the return object, then it will be called with 
+received data, so the method is kind of constructor to set received data. If method does not exists on the
+object, then Object.assign will be used to set received data. See example below.
+
+
+## Version 1.13.0 (Might Broke)
+`map` method is used to create main return object<br>
+`map` method will be called with `null` as data in order to create initial object 
+and again will be called with real data after receiving.
+
+See example of usage below
+
+## Version 1.12.0
+
+Added possibility to switch array/object mapping to get params.
+For now it's possible to switch between 2 ways of mapping, which are: 
+- `TGetParamsMappingType.Plain` (default and old behavior)<br>
+`params: ['one', 'two']` will be mapped to `/some/url/?params=one&params=two`
+- `TGetParamsMappingType.Braket` (proposed by [PR #87](https://github.com/troyanskiy/ng2-resource-rest/pull/87))<br>
+`params: ['one', 'two']` will be mapped to `/some/url?params[0]=one&params[1]=two`<br>
+`params: { data: ['one', 'two'] }` will be mapped to `/some/url?params[data][0]=one&params[data][1]=two`
+
+## Version 1.11.0
+ 
+Added protected method _request to Resource class. Can be used to replace default http requests with custom one.
 
 
 # Docs (WIP)
@@ -200,6 +256,16 @@ All default decorated options will be overwritten for the method.
 
 
 ## Types
+
+### `ResourceMethod<I, O>`
+Resource method type with specified `input data type` as `I` and `output data type` as `O`<br>
+In fact it's a function type (input?: I, callback?: (res: O) => void): ResourceResult<O>
+
+### `ResourceMethodStrict<IB, IP, O>`
+Resource method type with specified  `input body data type` as `IB`, `input path data type` as `IP` and `output data type` as `O`<br>
+In fact it's a function type (body?: IB, params?: IP, callback?: (res: O) => any): ResourceResult<O>
+`ResourceMethodStrict` developed in purpose to respove [issue #76](https://github.com/troyanskiy/ng2-resource-rest/issues/76)
+
 
 ### `ResourceResult<R>`
 Every request method is returning given data type which is extended by `ResourceResult`
@@ -222,6 +288,7 @@ export interface ResourceParamsCommon {
 	removeTrailingSlash?: boolean;
 	addTimestamp?: boolean | string;
 	withCredentials?: boolean;
+	[propName: string]: any;
 }
 ```
 
@@ -303,12 +370,14 @@ export interface ResourceActionBase extends ResourceParamsCommon {
 	isLazy?: boolean;
   requestInterceptor?: ResourceRequestInterceptor;
   responseInterceptor?: ResourceResponseInterceptor;
+  initResultObject?: ResourceResponseInitResult;
   map?: ResourceResponseMap;
   filter?: ResourceResponseFilter;
+  rootNode?: string;
 }
 ```
 
-All parametes will overwrite default one from `ResourceParamsBase`
+All parameters will overwrite default one from `ResourceParamsBase`
 
 #### `method`
 Http request method of the action.<br>
@@ -321,7 +390,7 @@ Used if received data is an array
 
 
 #### `isLazy`
-Is `isLazy` set to true, then the request will not be executed immediately. To execute the request you should subsribe to abservable and hande responces by yourself.
+Is `isLazy` set to true, then the request will not be executed immediately. To execute the request you should subscribe to observable and handle responses by yourself.
 
 #### `requestInterceptor`
 `(req: Request): Request;`
@@ -331,7 +400,7 @@ Default request interceptor is a function which recieves `Request` object from `
 **Default**: *doing nothing*
 
 #### `responseInterceptor`
-`(observable:Observable<any>, request?:Request):Observable<any>;`
+`(observable:Observable<any>, request?:Request, methodOptions?: ResourceActionBase):Observable<any>;`
 
 Custom response interceptor for the method<br>
 Default response interceptor is a function which receives `Observable` object from `rxjs/Observable` and returns also `Observable` object.<br>
@@ -341,6 +410,11 @@ function (observable:Observable<any>):Observable<any> {
 	return observable.map(res => res._body ? res.json() : null);
 }
 ```
+
+#### `initResultObject`
+`(): any;`
+
+Custom object creator. Added on Ver 1.14.0
 
 #### `map`
 `(item: any):any;`
@@ -358,6 +432,8 @@ Will be called for each array element if response is an array.<br>
 Will called for the object if response is an object<br>
 Called before map method
 
+#### `rootNode`
+The data sent to the API will be wrapped into the root node provided
 
 <br>
 
@@ -369,44 +445,47 @@ Called before map method
 
 ### Default methods
 
-#### `getUrl(): string | Promise<string>`
+#### `getUrl(methodOptions?: ResourceActionBase): string | Promise<string>`
 To get url. Used in methods.
 
 #### `setUrl(url: string)`
 To set resource url
 
-#### `getPath(): string | Promise<string>`
+#### `getPath(methodOptions?: ResourceActionBase): string | Promise<string>`
 To get path. Used in methods
 
 #### `setPath(path: string)`
 To set resource path
 
-#### `getHeaders(): any | Promise<any>`
+#### `getHeaders(methodOptions?: ResourceActionBase): any | Promise<any>`
 To get headers. Used in methods.
 
 #### `setHeaders(headers: any)`
 To set resource headers
 
-#### `getParams(): any | Promise<any>`
+#### `getParams(methodOptions?: ResourceActionBase): any | Promise<any>`
 To get params. Used in methods.
 
-#### `getParams(params: any)`
+#### `setParams(params: any)`
 To set resource params
 
-#### `getData(): any | Promise<any>`
+#### `getData(methodOptions?: ResourceActionBase): any | Promise<any>`
 To get data. Used in methods.
 
-#### `getData(data: any)`
+#### `setData(data: any)`
 To set resource data
 
-#### `requestInterceptor(req: Request): Request`
+#### `requestInterceptor(req: Request, methodOptions?: ResourceActionBase): Request`
 Default request interceptor
 
-#### `responseInterceptor(observable: Observable<any>, req: Request): Observable<any>`
+#### `responseInterceptor(observable: Observable<any>, req: Request, methodOptions?: ResourceActionBase): Observable<any>`
 Default response interceptor
 
 #### `removeTrailingSlash(): boolean`
 Called by method if needs to trim trailing slashes from final url
+
+#### `initResultObject(): any`
+Called on return object initialization
 
 #### `map(item: any): any<any>`
 Default response mapper
@@ -444,6 +523,9 @@ Defines params
 #### `ResourceGlobalConfig.data: any | Promise<any> = null`
 Defines data
 
+#### `getParamsMappingType: any = TGetParamsMappingType.Plain`
+Defines mapping method of arrays/objects to get params
+
 
 ## Priority of getting params by methods
 
@@ -476,23 +558,25 @@ export class UnitRes extends Resource {
 import {Request, Response} from '@angular/http';
 import {Observable, Subscriber} from 'rxjs';
 import {AuthServiceHelper} from '../helpers/index';
-import {Resource} from 'ng2-resource-rest';
+import {Resource} from 'ngx-resource';
 
 export class AuthGuardResource extends Resource {
 
   private deferredQ: Subscriber<any>[] = [];
   private configListenerSet: boolean = false;
 
-  getHeaders(): any {
+  getHeaders(methodOptions: any): any {
     let headers = super.getHeaders();
 
     // Extending our headers with Authorization
-    headers = AuthServiceHelper.extendHeaders(headers);
+    if (!methodOptions.noAuth) {
+      headers = AuthServiceHelper.extendHeaders(headers);
+    }
 
     return headers;
   }
 
-  responseInterceptor(observable: Observable<any>, request?: Request): Observable<any> {
+  responseInterceptor(observable: Observable<any>, request: Request, methodOptions: ResourceActionBase): Observable<any> {
 
     return Observable.create((subscriber: Subscriber<any>) => {
 
@@ -528,8 +612,8 @@ export class AuthGuardResource extends Resource {
 import { Injectable } from '@angular/core';
 import { RequestMethod } from '@angular/http';
 import { AppProject } from '../../project/app.project';
-import {ResourceAction, ResourceMethod, ResourceParams} from 'ng2-resource-rest';
-import {AuthGuardResource} from './authGuard.resource';
+import { ResourceAction, ResourceMethod, ResourceParams } from 'ngx-resource';
+import { AuthGuardResource } from './authGuard.resource';
 
 
 @Injectable()
@@ -540,7 +624,9 @@ export class AuthResource extends AuthGuardResource {
 
   @ResourceAction({
     method: RequestMethod.Post,
-    path: '/login'
+    path: '/login',
+    // Custom param
+    noAuth: true
   })
   login: ResourceMethod<{login: string, password: string}, any>;
 
@@ -562,127 +648,186 @@ export class AuthResource extends AuthGuardResource {
 
 
 ```ts
-import { Injectable } from '@angular/core';
-import { RequestMethod } from '@angular/http';
-import { AppProject } from '../../project/app.project';
-import { Resource, ResourceAction, ResourceMethod, ResourceParams, ResourceModelParams, ResourceModel } from 'ng2-resource-rest';
-import { SomeService } from './some.service'
-import { GroupResource, Group } from './group.resource'
-
-export interface IUserQueryInput {
-  is_active?: boolean;
+export interface ITestModel {
+  id?: string;
+  name?: string;
 }
 
-export interface IUserShort {
-  id: number;
-  email: string;
+export interface ITestQueryInput {
+  name?: string;
 }
 
-export interface IUser extends IUserShort {
-  avatar: string;
-  first_name: string;
-  last_name: string;
-}
+export class TestModel extends ResourceModel<TestResource> implements ITestModel {
 
-export interface User extends IUser {}
-
-@ResourceModelParams({
-  providers: [SomeService]
-})
-export class User extends ResourceModel<UserResource> {
-
-  static resourceClass = UserResource;
-
-  constructor(private someService: SomeService, private groupResource: GroupResource) {
-    super();
+  id: string;
+  name: string;
+  
+  $setData(data: any) {
+    // You can overwrite $setData method
+    if (data) {
+      this.id = data.id;
+      this.name = data.name;
+      // do something else
+    }
   }
 
-  someAction() {
-      return this.someService.someAction(this.id);
+  protected isNew(): boolean {
+    return !this.id;
   }
-
-  followers(): User[] {
-      return this.$resource.followers({id: this.id})
-  }
-
-  groups(): Group[] {
-      return this.groupResource.query({user: this.id})
-  }
+  
 }
 
 
 @Injectable()
 @ResourceParams({
-  url: 'https://domain.net/api/users'
+  url: 'https://domain.net/api/test'
 })
-export class UserResource extends ResourceCRUD<IUserQueryInput, IUserShort, User> {
+export class TestResource extends ResourceCRUD<ITestQueryInput, TestModel, TestModel> {
 
-  static model = User;
-
-  @ResourceAction({
-    method: RequestMethod.Get,
-    isArray: true,
-    path: '/followers'
-  })
-  followers: ResourceMethod<{id: any}, User[]>;
-
-  @ResourceAction({
-    method: RequestMethod.Get,
-    isArray: true,
-    path: '/followers',
-    model: Group
-  })
-  groups: ResourceMethod<{id: any}, Group[]>;
+  initResultObject(): TestModel {
+    return new TestModel();
+  }
 
 }
 
 ```
 
-###Using resource with model in your app
+### Using resource with model in your app
 
 ```ts
 import {Component, OnInit} from '@angular/core';
-import {UserResource, GroupResource, User, Group} from '../../resources/index';
 
 @Component({
   moduleId: module.id,
-  selector: 'user-component',
-  templateUrl: 'users.page.component.html',
-  styleUrls: ['users.page.component.css'],
+  selector: 'test-component',
+  templateUrl: 'test.page.component.html',
+  styleUrls: ['test.page.component.css'],
 })
-export class PageComponent implements OnInit {
+export class TestComponent implements OnInit {
 
-  usersList: User[] = [];
-  groupsList: Group[] = []
-  group: Group;
-  user: User;
+  constructor(private testRes: TestResource) {}
 
-  constructor(private userResource: UserResource, private groupResource: GroupResource) {}
+  ngOnInit() {
+  
+    let modelTest = this.testRes.createModel();
+    console.log('New modelTest', modelTest);
+  
+    modelTest.$save().$observable.subscribe(() => {
+      console.log('Saved and updated modelTest', modelTest);
+    });
+  
+    let modelTest2 = this.testRes.query();
+    console.log('Array of models', modelTest2);
+    
+    modelTest2.$observable.subscribe(() => {
+      // Data received
+      console.log('Array filled with test models', modelTest2);
+  
+      let modelTest3 = modelTest2[1];
+  
+      modelTest3.name = 'Roma';
+      modelTest3.$save().$observable.subscribe(() => {
+        console.log('Saved and updated', modelTest3);
+      });
+  
+    });
+  
+  }
+
+);
+```
+
+
+## Example of mapping object
+
+```ts
+
+export class CTest {
+
+  prop1: string = '';
+  prop2: string = '';
+  
+  get prop(): string {
+    return this.prop1 + ' ' + this.prop2;
+  }
+  
+  constructor(data: any = null) {
+    this.$setData(data);
+  }
+  
+  $setData(data: any) {
+    if (data) {
+      this.prop1 = data.prop1;
+      this.prop2 = data.prop2;
+      // do something else
+    }
+  }
+
+}
+
+@Injectable()
+@ResourceParams({
+  url: 'https://domain.net/api/test'
+})
+export class TestRes extends Resource {
+
+  @ResourceAction({
+    isArray: true
+  })
+  query: ResourceMethod<any, CTest[]>;
+
+  @ResourceAction({
+    path: '/{!id}'
+  })
+  get: ResourceMethod<{id: any}, CTest>;
+  
+  initResultObject(): any {
+    return new CTest();
+  }
+
+}
+
+@Component({
+  moduleId: module.id,
+  selector: 'test-component',
+  templateUrl: 'test.page.component.html',
+  styleUrls: ['test.page.component.css'],
+})
+export class TestComponent implements OnInit {
+
+  list: CTest[] = [];
+  test: CTest;
+  
+  prop: string;
+
+  constructor(private testRes:TestRes) {}
 
   ngOnInit():any {
 
-    // That will execute GET request https://domain.net/api/users
-    // and after will assign the data to this.usersList
-    this.usersList = this.userResource.query();
+    this.list = this.testRes.query();
 
-    //Get user
-    this.user = this.userResource.get({id: 1});
+    this.test = this.testRes.get({id:1});
+    
+    this.prepareData(); // will not set prop, test is not yet resolved
+    console.log(this.test.prop); // a space ' ' will be returned because data is not yet received
+    
+    
+    // so to get the prop we will need to wait data to be received
+    this.test
+      .$observable
+      .subscribe(
+        // Now the data is received and assigned on the object
+        () => this.prepareData()
+      );
+  }
+  
+  private preprareData() {
+    if (this.test && this.test.$resolved) {
+      this.prop = this.test.prop;
+    }
+  }
+}
 
-    //change and save user
-    this.user.first_name = 'Bob'
-    this.user.$save()
 
-    //get followers, get first follower, change and save
-    let followers: User[] = this.user.followers()
-    let follower: User = followers[0]
-    follower.first_name = 'Mary'
-    follower.$save()
 
-    //get user groups
-    let groups: Group[] = this.user.groups()
-
-    //call some action from SomeService for user
-    this.user.someAction()
-
-);
 ```

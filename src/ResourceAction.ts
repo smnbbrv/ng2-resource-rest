@@ -1,10 +1,13 @@
-import { RequestMethod, Response, Headers, URLSearchParams, RequestOptions, Request } from '@angular/http';
-import { Subscriber, Observable, ConnectableObservable, Subscription } from 'rxjs/Rx';
-import { ReflectiveInjector } from '@angular/core';
-import { Type } from '@angular/core/src/type';
-import { ResourceActionBase, ResourceResult, ResourceResponseMap, ResourceResponseFilter } from './Interfaces';
+import { Headers, Request, RequestMethod, RequestOptions, Response, URLSearchParams } from '@angular/http';
+import {
+  ResourceActionBase, ResourceResponseFilter, ResourceResponseInitResult, ResourceResponseMap,
+  ResourceResult
+} from './Interfaces';
 import { Resource } from './Resource';
 import { ResourceModel } from './ResourceModel';
+import { ConnectableObservable, Observable, Subscriber, Subscription } from 'rxjs/Rx';
+import { ResourceGlobalConfig, TGetParamsMappingType } from './ResourceGlobalConfig';
+
 
 
 export function ResourceAction(methodOptions?: ResourceActionBase) {
@@ -15,37 +18,53 @@ export function ResourceAction(methodOptions?: ResourceActionBase) {
     methodOptions.method = RequestMethod.Get;
   }
 
-  if (methodOptions.useModel === undefined) {
-    methodOptions.useModel = true;
-  }
-
-
   return function (target: Resource, propertyKey: string) {
 
     (<any>target)[propertyKey] = function (...args: any[]): ResourceResult<any> | ResourceModel<Resource> {
 
-      let resourceOptions = this._getResourceOptions();
+      let data = args.length ? args[0] : null;
+      let params = args.length > 1 ? args[1] : null;
+      let callback = args.length > 2 ? args[2] : null;
+
+      if (typeof data === 'function') {
+        callback = data;
+        data = null;
+      } else if (typeof params === 'function') {
+        callback = params;
+        params = null;
+      }
+
+      let resourceOptions = this.getResourceOptions();
 
       let isGetRequest = methodOptions.method === RequestMethod.Get;
 
-      let ret: ResourceResult<any> | ResourceModel<Resource>;
+      let ret: ResourceResult<any> | ResourceModel<Resource> = null;
 
-      let resourceModel: any;
+      let map: ResourceResponseMap = methodOptions.map ? methodOptions.map : this.map;
+      let filter: ResourceResponseFilter = methodOptions.filter ? methodOptions.filter : this.filter;
+      let initObject: ResourceResponseInitResult = methodOptions.initResultObject ?
+        methodOptions.initResultObject : this.initResultObject;
 
-      if (methodOptions.useModel) {
-        if (this.constructor.hasOwnProperty('getResourceModel') && !methodOptions.model) {
-          resourceModel = this.constructor.getResourceModel(args);
+      if (methodOptions.isLazy) {
+        ret = {};
+      } else {
+
+        if (methodOptions.isArray) {
+          ret = [];
         } else {
-          resourceModel = methodOptions.model || this.constructor['model'];
+
+          if (data && data.$resource === this) {
+            // Setting data to ret
+            ret = data;
+          } else {
+            ret = initObject();
+          }
+
         }
       }
 
-      if (resourceModel && !methodOptions.isArray) {
-        ret = resourceModel.create({}, false);
-      } else if (methodOptions.isLazy) {
-        ret = {};
-      } else {
-        ret = methodOptions.isArray ? [] : {};
+      if (data) {
+        data = data.toJSON ? data.toJSON() : toJSON(data);
       }
 
       let mainDeferredSubscriber: Subscriber<any> = null;
@@ -58,6 +77,8 @@ export function ResourceAction(methodOptions?: ResourceActionBase) {
       ret.$abortRequest = () => {
         ret.$resolved = true;
       };
+      ret.$resource = this;
+
 
       function releaseMainDeferredSubscriber() {
         if (mainDeferredSubscriber) {
@@ -67,18 +88,17 @@ export function ResourceAction(methodOptions?: ResourceActionBase) {
         }
       }
 
-
       if (!methodOptions.isLazy) {
         ret.$observable = ret.$observable.publish();
         (<ConnectableObservable<any>>ret.$observable).connect();
       }
 
       Promise.all([
-        Promise.resolve(methodOptions.url || this.getUrl()),
-        Promise.resolve(methodOptions.path || this.getPath()),
-        Promise.resolve(methodOptions.headers || this.getHeaders()),
-        Promise.resolve(methodOptions.params || this.getParams()),
-        Promise.resolve(methodOptions.data || this.getData())
+        Promise.resolve(methodOptions.url || this.getUrl(methodOptions)),
+        Promise.resolve(methodOptions.path || this.getPath(methodOptions)),
+        Promise.resolve(methodOptions.headers || this.getHeaders(methodOptions)),
+        Promise.resolve(methodOptions.params || this.getParams(methodOptions)),
+        Promise.resolve(methodOptions.data || this.getData(methodOptions))
       ])
         .then((dataAll: any[]) => {
 
@@ -94,28 +114,13 @@ export function ResourceAction(methodOptions?: ResourceActionBase) {
           let headers = new Headers(dataAll[2]);
           let defPathParams = dataAll[3];
 
-          let data = args.length ? args[0] : null;
-          let callback = args.length > 1 ? args[1] : null;
-
-          if (typeof data === 'function') {
-            if (!callback) {
-              callback = data;
-              data = null;
-            } else if (typeof callback !== 'function') {
-              let tmpData = callback;
-              callback = data;
-              data = tmpData;
-            } else {
-              data = null;
-            }
-
-          }
-
           let usedPathParams: any = {};
 
-          if (!Array.isArray(data)) {
+          if (!Array.isArray(data) || params) {
 
-            data = Object.assign({}, dataAll[4], data);
+            if (!Array.isArray(data)) {
+              data = Object.assign({}, dataAll[4], data);
+            }
 
             let pathParams = url.match(/{([^}]*)}/g) || [];
 
@@ -134,8 +139,8 @@ export function ResourceAction(methodOptions?: ResourceActionBase) {
                 pathKey = pathKey.substr(1);
               }
 
-              let value = getValueForPath(pathKey, defPathParams, data, usedPathParams);
-              if (isGetOnly) {
+              let value = getValueForPath(pathKey, defPathParams, params || data, usedPathParams);
+              if (isGetOnly && !params) {
                 delete data[pathKey];
               }
 
@@ -163,8 +168,6 @@ export function ResourceAction(methodOptions?: ResourceActionBase) {
             }
 
           }
-
-
 
           // Removing double slashed from final url
           url = url.replace(/\/\/+/g, '/');
@@ -201,7 +204,13 @@ export function ResourceAction(methodOptions?: ResourceActionBase) {
           } else {
             // NON GET
             if (data) {
-              body = JSON.stringify(data);
+              let _body: any = {};
+              if (methodOptions.rootNode) {
+                _body[`${methodOptions.rootNode}`] = data;
+              } else {
+                _body = data;
+              }
+              body = JSON.stringify(_body);
             }
             searchParams = defPathParams;
           }
@@ -209,29 +218,12 @@ export function ResourceAction(methodOptions?: ResourceActionBase) {
 
           // Setting search params
           let search: URLSearchParams = new URLSearchParams();
-          for (let key in searchParams) {
-            if (!usedPathParams[key]) {
 
-              let value: any = searchParams[key];
-
-              if (Array.isArray(value)) {
-
-                for (let arr_value of value) {
-                  search.append(key, arr_value);
-                }
-
-              } else {
-
-                if (typeof value === 'object') {
-                  /// Convert dates to ISO format string
-                  if (value instanceof Date) {
-                    value = value.toISOString();
-                  } else {
-                    value = JSON.stringify(value);
-                  }
-                }
-                search.append(key, value);
-
+          if (!params) {
+            for (let key in searchParams) {
+              if (searchParams.hasOwnProperty(key) && !usedPathParams[key]) {
+                let value: any = searchParams[key];
+                appendSearchParams(search, key, value);
               }
             }
           }
@@ -266,8 +258,8 @@ export function ResourceAction(methodOptions?: ResourceActionBase) {
           let req = new Request(requestOptions);
 
           req = methodOptions.requestInterceptor ?
-            methodOptions.requestInterceptor(req) :
-            this.requestInterceptor(req);
+            methodOptions.requestInterceptor(req, methodOptions) :
+            this.requestInterceptor(req, methodOptions);
 
           if (!req) {
             mainObservable = Observable.create((observer: any) => {
@@ -281,16 +273,13 @@ export function ResourceAction(methodOptions?: ResourceActionBase) {
           }
 
           // Doing the request
-          let requestObservable = this.http.request(req);
-
-          // noinspection TypeScriptValidateTypes
-          requestObservable = methodOptions.responseInterceptor ?
-            methodOptions.responseInterceptor(requestObservable, req) :
-            this.responseInterceptor(requestObservable, req);
+          let requestObservable = this._request(req, methodOptions);
 
 
           if (methodOptions.isLazy) {
+
             mainObservable = requestObservable;
+
           } else {
 
             mainObservable = Observable.create((subscriber: Subscriber<any>) => {
@@ -300,33 +289,46 @@ export function ResourceAction(methodOptions?: ResourceActionBase) {
 
                   if (resp !== null) {
 
-                    let map: ResourceResponseMap = methodOptions.map ? methodOptions.map : this.map;
-                    let filter: ResourceResponseFilter = methodOptions.filter ? methodOptions.filter : this.filter;
-
                     if (methodOptions.isArray) {
+
+                      // Expecting array
+
                       if (!Array.isArray(resp)) {
                         console.error('Returned data should be an array. Received', resp);
                       } else {
-                        let result = resp.filter(filter).map(map);
-                        result = !!resourceModel ? mapToModel.bind(this)(result, resourceModel) : result;
-                        Array.prototype.push.apply(ret, result);
+
+                        ret.push(
+                          ...resp
+                            .filter(filter)
+                            .map(map)
+                            .map((respItem: any) => {
+                              respItem.$resource = this;
+                              return setDataToObject(initObject(), respItem);
+                            })
+                        );
+
                       }
+
                     } else {
+
+                      // Expecting object
+
                       if (Array.isArray(resp)) {
                         console.error('Returned data should be an object. Received', resp);
                       } else {
+
                         if (filter(resp)) {
-                          if (!!resourceModel) {
-                            (<ResourceModel<Resource>>ret).$fillFromObject(map(resp));
-                          } else {
-                            Object.assign(ret, map(resp));
-                          }
+
+                          setDataToObject(ret, map(resp));
+
                         }
+
                       }
                     }
                   }
 
-                  subscriber.next(resp);
+                  ret.$resolved = true;
+                  subscriber.next(ret);
 
                 },
                 (err: any) => subscriber.error(err),
@@ -353,46 +355,79 @@ export function ResourceAction(methodOptions?: ResourceActionBase) {
 
           releaseMainDeferredSubscriber();
 
-        });
 
-      if (resourceModel) {
-        ret.$observable = ret.$observable.map((resp: any) => {
-          return mapToModel.bind(this)(resp, resourceModel);
+
         });
-      }
 
       return ret;
 
     };
 
   };
+
 }
 
-export function mapToModel(resp: any, model: Type<ResourceModel<Resource>>) {
-  let modelProviders = (<any>Reflect).getMetadata('providers', model) || [];
-  let providers = ReflectiveInjector.resolve(modelProviders);
-  let injector = ReflectiveInjector.fromResolvedProviders(providers, this.injector);
-  let properties = (<any>Reflect).getMetadata('design:paramtypes', model) || [];
-  let injection: any[] = [];
-  for (let property of properties) {
-    injection.push(injector.get(property));
-  }
 
-  let result: any;
+export function setDataToObject(ret: any, resp: any): any {
 
-  if (Array.isArray(resp)) {
-    result = [];
-    for (let item of resp) {
-      let modelInstance = new model(...injection).$fillFromObject(item);
-      modelInstance.$resource = this;
-      result.push(modelInstance);
-    }
+  if (ret.$setData) {
+    ret.$setData(resp);
   } else {
-    result = new model(...injection).$fillFromObject(resp);
-    result.$resource = this;
+    Object.assign(ret, resp);
   }
 
-  return result;
+  return ret;
+
+}
+
+export function appendSearchParams(search: URLSearchParams, key: string, value: any): void {
+  /// Convert dates to ISO format string
+  if (value instanceof Date) {
+    search.append(key, value.toISOString());
+    return;
+  }
+
+  if (typeof value === 'object') {
+
+    switch (ResourceGlobalConfig.getParamsMappingType) {
+
+      case TGetParamsMappingType.Plain:
+
+        if (Array.isArray(value)) {
+          for (let arr_value of value) {
+            search.append(key, arr_value);
+          }
+        } else {
+
+          if (value && typeof value === 'object') {
+            /// Convert dates to ISO format string
+            if (value instanceof Date) {
+              value = value.toISOString();
+            } else {
+              value = JSON.stringify(value);
+            }
+          }
+          search.append(key, value);
+
+        }
+        break;
+
+      case TGetParamsMappingType.Bracket:
+        /// Convert object and arrays to query params
+        for (let k in value) {
+          if (value.hasOwnProperty(k)) {
+            appendSearchParams(search, key + '[' + k + ']', value[k]);
+          }
+        }
+        break;
+    }
+
+    return;
+  }
+
+
+  search.append(key, value);
+
 }
 
 function getValueForPath(key: string, params: any, data: any, usedPathParams: any): string {
@@ -417,4 +452,17 @@ function getValueForPath(key: string, params: any, data: any, usedPathParams: an
 
 function isNullOrUndefined(value: any): boolean {
   return value === null || value === undefined;
+}
+
+function toJSON(obj: any):any {
+  let retObj: any = {};
+
+  for (let propName in obj) {
+
+    if (!(obj[propName] instanceof Function) && !(propName.charAt(0) === '$')) {
+      retObj[propName] = obj[propName];
+    }
+
+  }
+  return retObj;
 }

@@ -1,14 +1,12 @@
 import { Http, Request } from '@angular/http';
 import { Injector } from '@angular/core';
-import { Type } from '@angular/core/src/type';
 import { Observable } from 'rxjs/Rx';
 import { ResourceGlobalConfig } from './ResourceGlobalConfig';
+import { ResourceParamsBase } from './Interfaces';
+import { ResourceActionBase } from './Interfaces';
 import { ResourceModel } from './ResourceModel';
-// import { ResourceParamsBase } from './Interfaces';
 
 export class Resource {
-
-  static model: Type<ResourceModel<Resource>>;
 
   private _url: string = null;
   private _path: string = null;
@@ -16,18 +14,14 @@ export class Resource {
   private _params: any = null;
   private _data: any = null;
 
-  constructor(protected http: Http, protected injector: Injector) {
-    if ((<any>this.constructor).model) {
-      (<any>this.constructor).model.resourceInstance = this;
-    }
-  }
+  constructor(protected http: Http, protected injector: Injector) {}
 
   /**
    * Get main url of the resource
    * @returns {string|Promise<string>}
    */
-  getUrl(): string | Promise<string> {
-    return this._url || this._getUrl() || ResourceGlobalConfig.url || '';
+  getUrl(methodOptions?: ResourceActionBase): string | Promise<string> {
+    return this._url || this._getUrl(methodOptions) || ResourceGlobalConfig.url || '';
   }
 
   /**
@@ -42,8 +36,8 @@ export class Resource {
    * Get path of the resource
    * @returns {string|Promise<string>}
    */
-  getPath(): string | Promise<string> {
-    return this._path || this._getPath() || ResourceGlobalConfig.path || '';
+  getPath(methodOptions?: ResourceActionBase): string | Promise<string> {
+    return this._path || this._getPath(methodOptions) || ResourceGlobalConfig.path || '';
   }
 
   /**
@@ -58,8 +52,8 @@ export class Resource {
    * Get headers
    * @returns {any|Promise<any>}
    */
-  getHeaders(): any | Promise<any> {
-    return this._headers || this._getHeaders() || ResourceGlobalConfig.headers || {};
+  getHeaders(methodOptions?: ResourceActionBase): any | Promise<any> {
+    return this._headers || this._getHeaders(methodOptions) || ResourceGlobalConfig.headers || {};
   }
 
   /**
@@ -74,8 +68,8 @@ export class Resource {
    * Get default params
    * @returns {any|Promise<any>|{}}
    */
-  getParams(): any | Promise<any> {
-    return this._params || this._getParams() || ResourceGlobalConfig.params || {};
+  getParams(methodOptions?: ResourceActionBase): any | Promise<any> {
+    return this._params || this._getParams(methodOptions) || ResourceGlobalConfig.params || {};
   }
 
   /**
@@ -90,8 +84,8 @@ export class Resource {
    * Get default data
    * @returns {any|Promise<any>|{}}
    */
-  getData(): any | Promise<any> {
-    return this._data || this._getData() || ResourceGlobalConfig.data || {};
+  getData(methodOptions?: ResourceActionBase): any | Promise<any> {
+    return this._data || this._getData(methodOptions) || ResourceGlobalConfig.data || {};
   }
 
   /**
@@ -107,7 +101,7 @@ export class Resource {
    * That is called before executing request
    * @param req
    */
-  requestInterceptor(req: Request): Request {
+  requestInterceptor(req: Request, methodOptions?: ResourceActionBase): Request {
     return req;
   }
 
@@ -116,12 +110,16 @@ export class Resource {
    * @param observable
    * @returns {Observable<any>}
    */
-  responseInterceptor(observable: Observable<any>, req: Request): Observable<any> {
+  responseInterceptor(observable: Observable<any>, req: Request, methodOptions?: ResourceActionBase): Observable<any> {
     return observable.map(res => res._body ? res.json() : null);
   }
 
   removeTrailingSlash(): boolean {
     return true;
+  }
+
+  initResultObject(): any {
+    return {};
   }
 
   map(item: any): any {
@@ -132,29 +130,51 @@ export class Resource {
     return true;
   }
 
-
-  private _getUrl(): string|Promise<string> {
+  getResourceOptions(): ResourceParamsBase {
     return null;
   }
 
-  private _getPath(): string|Promise<string> {
+
+  createModel(): ResourceModel<any> {
+    let ret = this.initResultObject();
+    ret.$resource = this;
+    return ret;
+  }
+
+
+
+
+  protected _request(req: Request, methodOptions: ResourceActionBase = {}): Observable<any> {
+
+    let requestObservable = this.http.request(req);
+
+    // noinspection TypeScriptValidateTypes
+    return methodOptions.responseInterceptor ?
+      methodOptions.responseInterceptor(requestObservable, req, methodOptions) :
+      this.responseInterceptor(requestObservable, req, methodOptions);
+
+  }
+
+
+  private _getUrl(methodOptions?: ResourceActionBase): string|Promise<string> {
     return null;
   }
 
-  private _getHeaders(): any | Promise<any> {
+  private _getPath(methodOptions?: ResourceActionBase): string|Promise<string> {
     return null;
   }
 
-  private _getParams(): any | Promise<any> {
+  private _getHeaders(methodOptions?: ResourceActionBase): any | Promise<any> {
     return null;
   }
 
-  private _getData(): any | Promise<any> {
+  private _getParams(methodOptions?: ResourceActionBase): any | Promise<any> {
     return null;
   }
 
-  // private _getResourceOptions(): ResourceParamsBase {
-  //   return null;
-  // }
+  private _getData(methodOptions?: ResourceActionBase): any | Promise<any> {
+    return null;
+  }
+
 
 }
